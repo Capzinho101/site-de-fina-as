@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Controle de Gastos</title>
+<script src="https://cdn.tailwindcss.com"></script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+</head>
+
+<body class="bg-gray-900 text-white p-6">
+
+<button onclick="toggleSidebar()"
+class="fixed top-3 left-3 bg-gray-800 px-3 py-2 rounded z-50">
+☰
+</button>
+
+<div id="overlay"
+class="fixed inset-0 bg-black/50 hidden z-40"
+onclick="closeSidebar()"></div>
+
+<div id="sidebar"
+class="fixed top-0 left-0 w-72 h-full bg-gray-950 p-4 transform -translate-x-full transition z-50 overflow-y-auto">
+
+  <h2 class="font-bold mb-4">⚙ Painel</h2>
+
+  <div class="bg-gray-900 p-3 rounded mb-4">
+    <p class="text-sm mb-2">👤 Conta</p>
+    <button onclick="login()" class="bg-green-600 w-full p-2 rounded mb-2">Login Google</button>
+    <button onclick="logout()" class="bg-red-600 w-full p-2 rounded">Sair</button>
+    <p id="userSidebar" class="text-xs mt-2"></p>
+  </div>
+
+  <div class="mb-4">
+    <p class="text-sm">💰 Salário</p>
+    <input id="salary" type="number" class="bg-gray-800 p-2 w-full rounded">
+    <button onclick="setSalary()" class="bg-blue-600 w-full p-2 rounded mt-2">Salvar</button>
+  </div>
+
+  <div class="mb-4">
+    <p class="text-sm">📅 Dia do ciclo</p>
+    <input id="cycle" type="number" min="1" max="31" class="bg-gray-800 p-2 w-full rounded">
+    <button onclick="setCycle()" class="bg-purple-600 w-full p-2 rounded mt-2">Salvar</button>
+  </div>
+
+  <div>
+    <p class="font-bold mb-2">📊 Histórico mensal</p>
+    <div id="history" class="text-sm space-y-1"></div>
+  </div>
+
+</div>
+
+<h1 class="text-xl font-bold mb-4 ml-10">💰 Controle de Gastos</h1>
+
+<div class="mb-4 ml-10 text-sm">
+  <p id="userMain"></p>
+</div>
+
+<!-- RESUMO -->
+<div class="grid grid-cols-2 gap-4 text-sm mb-4 ml-10">
+  <div class="bg-green-900 p-3 rounded">
+    <p>Total entradas</p>
+    <strong>R$ <span id="income">0</span></strong>
+  </div>
+  <div class="bg-red-900 p-3 rounded">
+    <p>Total gastos</p>
+    <strong>R$ <span id="expenses">0</span></strong>
+  </div>
+  <div class="bg-blue-900 p-3 rounded">
+    <p>Saldo</p>
+    <strong>R$ <span id="balance">0</span></strong>
+  </div>
+  <div class="bg-yellow-700 text-black p-3 rounded">
+    <p>Dívida restante</p>
+    <strong>R$ <span id="remaining">0</span></strong>
+  </div>
+</div>
+
+<div class="bg-gray-800 p-4 rounded mb-4 ml-10">
+
+  <input id="desc" class="bg-gray-700 p-2 w-full rounded mb-2" placeholder="Descrição">
+
+  <select id="category" class="bg-gray-700 p-2 w-full rounded mb-2">
+    <option>💧 Água</option>
+    <option>🚌 Transporte</option>
+    <option>🏠 Contas</option>
+    <option>🍔 Alimentação</option>
+    <option>💡 Luz</option>
+    <option>💰 Saldo</option>
+    <option>📦 Outros</option>
+  </select>
+
+  <input id="value" type="number" class="bg-gray-700 p-2 w-full rounded mb-2" placeholder="Valor">
+
+  <button onclick="add()" class="bg-blue-600 w-full p-2 rounded">Adicionar</button>
+</div>
+
+<h2 class="ml-10 font-bold mb-2">📌 Lista</h2>
+<div id="list" class="space-y-2 ml-10"></div>
+
+<script>
+
+// FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyDeXJ_uSeaLgPKRUA1nCV7UFwEzpmiOmHc",
+  authDomain: "meu-controle-financeiro-a0572.firebaseapp.com",
+  projectId: "meu-controle-financeiro-a0572",
+  storageBucket: "meu-controle-financeiro-a0572.firebasestorage.app",
+  messagingSenderId: "202199536593",
+  appId: "1:202199536593:web:be012b0bd8c44b8c86c6f0"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+let userId = null;
+let transactions = {};
+let salary = 0;
+let cycle = 1;
+
+// 🔥 CICLO AUTOMÁTICO
+function getCycleKey() {
+  const today = new Date();
+  const day = today.getDate();
+
+  let month = today.getMonth() + 1;
+  let year = today.getFullYear();
+
+  if (day < cycle) {
+    month--;
+    if (month === 0) {
+      month = 12;
+      year--;
+    }
+  }
+
+  return `${year}-${month}`;
+}
+
+// LOGIN
+function login(){
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithRedirect(provider);
+}
+
+function logout(){
+  auth.signOut();
+}
+
+auth.getRedirectResult().catch(() => {});
+
+auth.onAuthStateChanged((user) => {
+  const sidebar = document.getElementById("userSidebar");
+  const main = document.getElementById("userMain");
+
+  if (user) {
+    userId = user.uid;
+    sidebar.innerText = "Logado: " + user.email;
+    main.innerText = "Logado: " + user.email;
+    load();
+  } else {
+    userId = null;
+    sidebar.innerText = "Faça login";
+    main.innerText = "Faça login";
+  }
+});
+
+// SIDEBAR
+function toggleSidebar(){
+  const sidebar = document.getElementById("sidebar");
+  const overlay = document.getElementById("overlay");
+
+  const isClosed = sidebar.classList.contains("-translate-x-full");
+
+  if(isClosed){
+    sidebar.classList.remove("-translate-x-full");
+    overlay.classList.remove("hidden");
+  } else {
+    sidebar.classList.add("-translate-x-full");
+    overlay.classList.add("hidden");
+  }
+}
+
+function closeSidebar(){
+  document.getElementById("sidebar").classList.add("-translate-x-full");
+  document.getElementById("overlay").classList.add("hidden");
+}
+
+// ADD
+function add(){
+  const desc = document.getElementById("desc").value;
+  const value = parseFloat(document.getElementById("value").value);
+  const category = document.getElementById("category").value;
+
+  if(!desc || isNaN(value)) return;
+
+  const key = getCycleKey();
+  if(!transactions[key]) transactions[key] = [];
+
+  transactions[key].push({
+    id: Date.now(),
+    desc,
+    value,
+    category,
+    paid: false
+  });
+
+  save();
+  render();
+}
+
+// SAVE / LOAD
+function save(){
+  if(!userId) return;
+  db.collection("users").doc(userId).set({
+    transactions
+  }, { merge: true });
+}
+
+async function load(){
+  if(!userId) return;
+  const doc = await db.collection("users").doc(userId).get();
+  if(doc.exists){
+    transactions = doc.data().transactions || {};
+  }
+  render();
+}
+
+// RENDER
+function render(){
+
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+
+  const key = getCycleKey();
+  const current = transactions[key] || [];
+
+  let income = 0;
+  let expenses = 0;
+
+  current.forEach(t => {
+
+    if(t.value > 0) income += t.value;
+    else expenses += t.value;
+
+    let status = "";
+
+    if(t.value < 0 && !t.paid){
+      status = `<span style="color:red;font-weight:bold">PENDENTE</span>`;
+    }
+
+    if(t.paid){
+      status = `<span style="color:green;font-weight:bold">PAGO</span>`;
+    }
+
+    list.innerHTML += `
+      <div class="bg-gray-800 p-2 rounded flex justify-between">
+        <div>
+          ${t.desc} (${t.category}) - R$ ${t.value}
+          ${status}
+        </div>
+      </div>
+    `;
+  });
+
+  const balance = income + expenses;
+
+  document.getElementById("income").innerText = income.toFixed(2);
+  document.getElementById("expenses").innerText = Math.abs(expenses).toFixed(2);
+  document.getElementById("balance").innerText = balance.toFixed(2);
+  document.getElementById("remaining").innerText = Math.abs(expenses).toFixed(2);
+}
+
+render();
+
+</script>
+
+</body>
+</html>
