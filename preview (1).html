@@ -117,18 +117,19 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+// 🔥 CORREÇÃO LOGIN PERSISTENTE
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
+// DADOS
 let userId = null;
 let transactions = {};
 let salary = 0;
 let cycle = 1;
 
-// 🔥 CICLO AUTOMÁTICO
+// CICLO
 function getCycleKey() {
   const today = new Date();
-  const day = today.getDate();
-
+  let day = today.getDate();
   let month = today.getMonth() + 1;
   let year = today.getFullYear();
 
@@ -153,8 +154,10 @@ function logout(){
   auth.signOut();
 }
 
-auth.getRedirectResult().catch(() => {});
+// 🔥 ESSENCIAL PRO REDIRECT FUNCIONAR
+auth.getRedirectResult();
 
+// AUTH STATE
 auth.onAuthStateChanged((user) => {
   const sidebar = document.getElementById("userSidebar");
   const main = document.getElementById("userMain");
@@ -192,6 +195,18 @@ function closeSidebar(){
   document.getElementById("overlay").classList.add("hidden");
 }
 
+// SALÁRIO
+function setSalary(){
+  salary = parseFloat(document.getElementById("salary").value) || 0;
+  save();
+}
+
+// CICLO
+function setCycle(){
+  cycle = parseInt(document.getElementById("cycle").value) || 1;
+  save();
+}
+
 // ADD
 function add(){
   const desc = document.getElementById("desc").value;
@@ -215,20 +230,38 @@ function add(){
   render();
 }
 
+// BOTÃO PAGO (voltou)
+function togglePaid(id){
+  const key = getCycleKey();
+  const t = transactions[key].find(x => x.id === id);
+  if(t) t.paid = !t.paid;
+  save();
+  render();
+}
+
 // SAVE / LOAD
 function save(){
   if(!userId) return;
+
   db.collection("users").doc(userId).set({
-    transactions
+    transactions,
+    salary,
+    cycle
   }, { merge: true });
 }
 
 async function load(){
   if(!userId) return;
+
   const doc = await db.collection("users").doc(userId).get();
+
   if(doc.exists){
-    transactions = doc.data().transactions || {};
+    const data = doc.data();
+    transactions = data.transactions || {};
+    salary = data.salary || 0;
+    cycle = data.cycle || 1;
   }
+
   render();
 }
 
@@ -265,6 +298,8 @@ function render(){
           ${t.desc} (${t.category}) - R$ ${t.value}
           ${status}
         </div>
+
+        <button onclick="togglePaid(${t.id})">✔</button>
       </div>
     `;
   });
