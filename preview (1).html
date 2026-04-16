@@ -117,7 +117,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-// 🔥 CORREÇÃO LOGIN PERSISTENTE
+// 🔥 persistência funcionando
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
 // DADOS
@@ -127,15 +127,14 @@ let salary = 0;
 let cycle = 1;
 
 // CICLO
-function getCycleKey() {
+function getCycleKey(){
   const today = new Date();
-  let day = today.getDate();
-  let month = today.getMonth() + 1;
+  let month = today.getMonth()+1;
   let year = today.getFullYear();
 
-  if (day < cycle) {
+  if(today.getDate() < cycle){
     month--;
-    if (month === 0) {
+    if(month === 0){
       month = 12;
       year--;
     }
@@ -144,31 +143,35 @@ function getCycleKey() {
   return `${year}-${month}`;
 }
 
-// LOGIN
+// 🔥 LOGIN CORRIGIDO (POPUP)
 function login(){
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithRedirect(provider);
+
+  auth.signInWithPopup(provider)
+  .then(result=>{
+    console.log("Login OK", result.user.email);
+  })
+  .catch(err=>{
+    console.log("Erro login", err);
+    alert("Erro no login");
+  });
 }
 
 function logout(){
   auth.signOut();
 }
 
-// 🔥 ESSENCIAL PRO REDIRECT FUNCIONAR
-auth.getRedirectResult();
-
-// AUTH STATE
-auth.onAuthStateChanged((user) => {
+// AUTH
+auth.onAuthStateChanged(user=>{
   const sidebar = document.getElementById("userSidebar");
   const main = document.getElementById("userMain");
 
-  if (user) {
+  if(user){
     userId = user.uid;
     sidebar.innerText = "Logado: " + user.email;
     main.innerText = "Logado: " + user.email;
     load();
-  } else {
-    userId = null;
+  }else{
     sidebar.innerText = "Faça login";
     main.innerText = "Faça login";
   }
@@ -176,35 +179,13 @@ auth.onAuthStateChanged((user) => {
 
 // SIDEBAR
 function toggleSidebar(){
-  const sidebar = document.getElementById("sidebar");
-  const overlay = document.getElementById("overlay");
-
-  const isClosed = sidebar.classList.contains("-translate-x-full");
-
-  if(isClosed){
-    sidebar.classList.remove("-translate-x-full");
-    overlay.classList.remove("hidden");
-  } else {
-    sidebar.classList.add("-translate-x-full");
-    overlay.classList.add("hidden");
-  }
+  document.getElementById("sidebar").classList.toggle("-translate-x-full");
+  document.getElementById("overlay").classList.toggle("hidden");
 }
 
 function closeSidebar(){
   document.getElementById("sidebar").classList.add("-translate-x-full");
   document.getElementById("overlay").classList.add("hidden");
-}
-
-// SALÁRIO
-function setSalary(){
-  salary = parseFloat(document.getElementById("salary").value) || 0;
-  save();
-}
-
-// CICLO
-function setCycle(){
-  cycle = parseInt(document.getElementById("cycle").value) || 1;
-  save();
 }
 
 // ADD
@@ -223,98 +204,91 @@ function add(){
     desc,
     value,
     category,
-    paid: false
+    paid:false
   });
 
   save();
   render();
 }
 
-// BOTÃO PAGO (voltou)
+// TOGGLE
 function togglePaid(id){
   const key = getCycleKey();
-  const t = transactions[key].find(x => x.id === id);
+  const t = transactions[key].find(x=>x.id===id);
   if(t) t.paid = !t.paid;
   save();
   render();
 }
 
-// SAVE / LOAD
+// DELETE
+function del(id){
+  const key = getCycleKey();
+  transactions[key] = transactions[key].filter(t=>t.id!==id);
+  save();
+  render();
+}
+
+// SAVE
 function save(){
   if(!userId) return;
-
   db.collection("users").doc(userId).set({
     transactions,
     salary,
     cycle
-  }, { merge: true });
+  },{merge:true});
 }
 
+// LOAD
 async function load(){
-  if(!userId) return;
-
   const doc = await db.collection("users").doc(userId).get();
-
   if(doc.exists){
     const data = doc.data();
     transactions = data.transactions || {};
     salary = data.salary || 0;
     cycle = data.cycle || 1;
   }
-
   render();
 }
 
 // RENDER
 function render(){
-
   const list = document.getElementById("list");
   list.innerHTML = "";
 
   const key = getCycleKey();
   const current = transactions[key] || [];
 
-  let income = 0;
-  let expenses = 0;
+  let income=0, expenses=0;
 
-  current.forEach(t => {
+  current.forEach(t=>{
+    if(t.value>0) income+=t.value;
+    else expenses+=t.value;
 
-    if(t.value > 0) income += t.value;
-    else expenses += t.value;
+    let status="";
+    if(t.value<0 && !t.paid) status=`<span style="color:red">PENDENTE</span>`;
+    if(t.paid) status=`<span style="color:green">PAGO</span>`;
 
-    let status = "";
-
-    if(t.value < 0 && !t.paid){
-      status = `<span style="color:red;font-weight:bold">PENDENTE</span>`;
-    }
-
-    if(t.paid){
-      status = `<span style="color:green;font-weight:bold">PAGO</span>`;
-    }
-
-    list.innerHTML += `
-      <div class="bg-gray-800 p-2 rounded flex justify-between">
-        <div>
-          ${t.desc} (${t.category}) - R$ ${t.value}
-          ${status}
-        </div>
-
-        <button onclick="togglePaid(${t.id})">✔</button>
+    list.innerHTML+=`
+    <div class="bg-gray-800 p-2 rounded flex justify-between">
+      <div>
+        ${t.desc} (${t.category}) - R$ ${t.value}
+        ${status}
       </div>
-    `;
+      <div class="flex gap-2">
+        <button onclick="togglePaid(${t.id})">✔</button>
+        <button onclick="del(${t.id})">❌</button>
+      </div>
+    </div>`;
   });
 
-  const balance = income + expenses;
-
-  document.getElementById("income").innerText = income.toFixed(2);
-  document.getElementById("expenses").innerText = Math.abs(expenses).toFixed(2);
-  document.getElementById("balance").innerText = balance.toFixed(2);
-  document.getElementById("remaining").innerText = Math.abs(expenses).toFixed(2);
+  document.getElementById("income").innerText=income.toFixed(2);
+  document.getElementById("expenses").innerText=Math.abs(expenses).toFixed(2);
+  document.getElementById("balance").innerText=(income+expenses).toFixed(2);
+  document.getElementById("remaining").innerText=Math.abs(expenses).toFixed(2);
 }
 
 render();
 
 </script>
-
 </body>
 </html>
